@@ -1,54 +1,63 @@
-var braintree = require('braintree');
-var app = require('express').createServer();
-var ejs = require('ejs');
+var braintree = require("braintree");
+var express = require("express");
+var app = express();
+
+app.use(express.bodyParser());
 
 var gateway = braintree.connect({
   environment: braintree.Environment.Sandbox,
-  merchantId: "your_merchant_id",
-  publicKey: "your_public_key",
-  privateKey: "your_private_key"
+  merchantId: "use_your_merchant_id",
+  publicKey: "use_your_public_key",
+  privateKey: "use_your_private_key"
 });
 
-app.get('/', function(req, res){
-  var trData = gateway.transparentRedirect.createCustomerData({
-    redirectUrl: 'http://localhost:3000/braintree'
-  });
-
-  res.render('form.ejs', {trData: trData, braintreeUrl: gateway.transparentRedirect.url});
+app.get("/", function (req, res) {
+  res.render("braintree.ejs");
 });
 
-app.get('/braintree', function(req, res) {
-  gateway.transparentRedirect.confirm(req._parsedUrl.query, function (err, result) {
-    var customerId;
+app.post("/create_customer", function (req, res) {
+  var customerRequest = {
+    firstName: req.body.first_name,
+    lastName: req.body.last_name,
+    creditCard: {
+      number: req.body.number,
+      cvv: req.body.cvv,
+      expirationMonth: req.body.month,
+      expirationYear: req.body.year,
+      billingAddress: {
+        postalCode: req.body.postal_code
+      }
+    }
+  };
+
+  gateway.customer.create(customerRequest, function (err, result) {
     if (result.success) {
-      var message = "Created Customer with ID: " + result.customer.email;
-      customerId = result.customer.id;
+      res.send(
+        "<h1>Customer created with name: " + result.customer.firstName + " " + result.customer.lastName + "</h1>" +
+         "<a href=\"/subscriptions?id=" + result.customer.id + "\">Click here to sign this Customer up for a recurring payment</a>"
+      );
+    } else {
+      res.send("<h1>Error: " + result.message + "</h1>");
     }
-    else {
-      var message = JSON.stringify(result.errors, null, 2);
-    }
-    res.render('response.ejs', {result: result, message: message,
-                                customerId: customerId});
   });
 });
 
-app.get('/subscriptions', function(req, res){
-  var customerId = req.query["id"];
+app.get("/subscriptions", function (req, res) {
+  var customerId = req.query.id;
+
   gateway.customer.find(customerId, function (err, customer) {
-    var paymentMethodToken = customer.creditCards[0].token;
-    gateway.subscription.create({
-      paymentMethodToken: paymentMethodToken,
-      planId: 'test_plan_1'
-    },
-    function (err, subscriptionResult) {
-      if (subscriptionResult.success) {
-        var message = ' Subscription status: ' + subscriptionResult.subscription.status;
-      }
-      else {
-        var message = subscriptionResult.message;
-      }
-      res.render('subscription.ejs', {message: message});
-    });
+    if (err) {
+        res.send("<h1>No customer found for id: " + req.query.id + "</h1>");
+    } else {
+      var subscriptionRequest = {
+        paymentMethodToken: customer.creditCards[0].token,
+        planId: "test_plan_1"
+      };
+
+      gateway.subscription.create(subscriptionRequest, function (err, result) {
+        res.send("<h1>Subscription Status " + result.subscription.status + "</h1>");
+      });
+    }
   });
 });
 
